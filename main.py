@@ -1,17 +1,24 @@
-from telegram.ext import Application, MessageHandler, filters
+from datetime import datetime
 
-TIMER = 5  # таймер на 5 секунд
+from telegram.ext import CommandHandler, Application
+
 BOT_TOKEN = 'Token'
 
 
-async def echo(update, context):
-    await update.message.reply_text(f'Я получил сообщение {update.message.text}')
+async def date(update, context):
+    """Отправляет сообщение когда получена команда /date"""
+    await update.message.reply_text(f'Текущая дата {datetime.today().strftime('%d.%m.%Y')}')
+
+
+async def time(update, context):
+    """Отправляет сообщение когда получена команда /time"""
+    await update.message.reply_text(f'Текущее время {datetime.today().strftime('%H:%M:%S')}')
 
 
 def main():
     application = Application.builder().token(BOT_TOKEN).build()
-    text_handler = MessageHandler(filters.TEXT, echo)
-    application.add_handler(text_handler)
+    application.add_handler(CommandHandler("date", date))
+    application.add_handler(CommandHandler("time", time))
     application.run_polling()
 
 
