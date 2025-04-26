@@ -1,11 +1,10 @@
-from telegram import ReplyKeyboardMarkup
-from telegram.ext import Application,CommandHandler
-
-import random
 import math
+import random
+
+from telegram import ReplyKeyboardMarkup
+from telegram.ext import Application, CommandHandler
 
 TOKEN = '7306972602:AAFcRt44eELIQkbjybhrUk4CWuJgao4zZAo'
-
 
 base_keyboard = [['/dice', '/timer']]
 dice_keyboard = [['/6', '/2x6', '/20', '/back']]
