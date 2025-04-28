@@ -1,36 +1,39 @@
-from telegram.ext import Application, CommandHandler, filters, MessageHandler, ConversationHandler
+from telegram.ext import Application, CommandHandler, filters, MessageHandler
 
 from config import BOT_TOKEN
 
 poem = '''Белеет парус одинокой
 В тумане моря голубом!..
 Что ищет он в стране далекой?
-Как будто в бурях есть покой!'''.split('\n')
-
-'''Что кинул он в краю родном?..
+Что кинул он в краю родном?..
 Играют волны — ветер свищет,
 И мачта гнется и скрыпит...
 Увы! он счастия не ищет
 И не от счастия бежит!
 Под ним струя светлей лазури,
 Над ним луч солнца золотой…
-А он, мятежный, просит бури,'''
+А он, мятежный, просит бури,
+Как будто в бурях есть покой!'''.split('\n')
 
 COUNT = 0
+
 
 async def start(update, context):
     global COUNT
     COUNT = 1
     await update.message.reply_text(poem[0])
 
+
 async def stop(update, context):
     global COUNT
     await update.message.reply_text("Игра прервана")
-    await update.message.reply_text("Что бы начать с начала введите /start")
+    await update.message.reply_text("Чтобы начать с начала введите /start")
     COUNT = len(poem)
+
 
 async def suphler(update, context):
     await update.message.reply_text(poem[COUNT])
+
 
 async def print_poem(update, context):
     global COUNT
@@ -47,7 +50,6 @@ async def print_poem(update, context):
             await suphler(update, context)
     except IndexError:
         await update.message.reply_text('Нет, не так')
-
 
 
 def main():
