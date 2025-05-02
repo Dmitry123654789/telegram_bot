@@ -1,76 +1,107 @@
-from itertools import count
-from json import loads
-from random import choice
-from telegram.ext import Application, CommandHandler, filters, MessageHandler
+import math
+import random
 
+from telegram import ReplyKeyboardMarkup
+from telegram.ext import Application, CommandHandler
 from config import BOT_TOKEN
 
-QUESTIONS = {}
-GAME = False
+base_keyboard = [['/dice', '/timer']]
+dice_keyboard = [['/6', '/2x6', '/20', '/back']]
+timer_keyboard = [['/30s', '/1m', '/5m', '/back']]
+close_keyboard = [['/close']]
 
-user_questions = {}
-last_questions = ''
+base_markup = ReplyKeyboardMarkup(base_keyboard, one_time_keyboard=False)
+dice_markup = ReplyKeyboardMarkup(dice_keyboard, one_time_keyboard=False)
+timer_markup = ReplyKeyboardMarkup(timer_keyboard, one_time_keyboard=False)
+active_timer_markup = ReplyKeyboardMarkup(close_keyboard, one_time_keyboard=False)
 
 
 async def start(update, context):
-    if QUESTIONS:
-        await update.message.reply_text('''Хотите ли вы пройти опрос?\n/yes Да\n/no нет''')
+    await update.message.reply_text('Привет! Я бот-гадалка!')
+    await update.message.reply_text("/dice: кинуть кубики, /timer: засечь время", reply_markup=base_markup)
 
 
-async def yes(update, context):
-    global GAME, user_questions, last_questions
-    GAME = True
-    res = choice(list(list(QUESTIONS.keys())))
-    user_questions = {res: ''}
-    last_questions = res
-    await update.message.reply_text("Первый вопрос")
-    await update.message.reply_text(res)
+async def dices(update, context):
+    await update.message.reply_text("кинуть кубики: 6 граней, 2 по 6, 20 или вернуться назад", reply_markup=dice_markup)
 
 
-async def no(update, context):
-    await update.message.reply_text("Ну и ладно")
+async def dice6(update, context):
+    number = math.trunc(random.random() * 6) + 1
+    await update.message.reply_text("{0}".format(number))
 
 
-async def stop(update, context):
-    global GAME
-    GAME = False
-    await update.message.reply_text("Игра прервана")
+async def dice2x6(update, context):
+    number1 = math.trunc(random.random() * 6) + 1
+    number2 = math.trunc(random.random() * 6) + 1
+    await update.message.reply_text("{0} {1}".format(number1, number2))
 
 
-async def load_question(update, context):
-    global last_questions, user_questions, GAME, QUESTIONS
-    if not GAME:
-        try:
-            for res in loads(update.message.text)['test']:
-                QUESTIONS[res['question']] = res['response']
-            return await update.message.reply_text("Вопросы записаны")
-        except Exception as e:
-            return await update.message.reply_text(f"Вопросы не записаны\nКод ошибки {str(e)}")
+async def dice20(update, context):
+    number = math.trunc(random.random() * 20) + 1
+    await update.message.reply_text("{0}".format(number))
 
-    user_questions[last_questions] = update.message.text.strip()
-    if len(user_questions) == len(list(QUESTIONS.keys())) or len(user_questions) == 10:
-        GAME = False
-        count_true_answer = len([ansew for key, ansew in user_questions.items() if ansew == QUESTIONS[key]])
-        await update.message.reply_text(
-            f"Всего вопросов в тесте было {len(user_questions)}\nПравильный ответов {count_true_answer}")
-        return await update.message.reply_text(f"Хотите пройти тест снова?\n/yes Да\n/no нет")
 
-    res = choice(list(QUESTIONS.keys()))
-    while res in user_questions.keys():
-        res = choice(list(QUESTIONS.keys()))
-    user_questions[res] = ''
-    last_questions = res
-    await update.message.reply_text(res)
+# Управление таймерами.
+
+async def timers(update, context):
+    await update.message.reply_text("засечь: 30 сек., 1 мин., 5 мин.  или вернуться назад", reply_markup=timer_markup)
+
+
+async def set_timer(update, context, delay):
+    job = context.job_queue.run_once(finish_timer, delay, chat_id=update.message.chat_id, data=delay)
+
+    context.chat_data['job'] = job
+    await update.message.reply_text(f'Установлен таймер на {delay} секунд', reply_markup=active_timer_markup)
+
+
+async def finish_timer(context):
+    job = context.job
+    await context.bot.send_message(job.chat_id, text='Время истекло.', reply_markup=timer_markup)
+
+
+async def reset_timer(update, context):
+    if 'job' in context.chat_data:
+        context.chat_data['job'].schedule_removal()
+        del context.chat_data['job']
+
+    await update.message.reply_text('Таймер сброшен.', reply_markup=timer_markup)
+
+
+# Таймеры
+
+async def timer30s(update, context):
+    await set_timer(update, context, 30)
+
+
+async def timer1m(update, context):
+    await set_timer(update, context, 60)
+
+
+async def timer5m(update, context):
+    await set_timer(update, context, 300)
 
 
 def main():
     application = Application.builder().token(BOT_TOKEN).build()
 
+    # Старт
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("stop", stop))
-    application.add_handler(CommandHandler("yes", yes))
-    application.add_handler(CommandHandler("no", no))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, load_question))
+
+    # Переключение режимов
+    application.add_handler(CommandHandler("dice", dices))
+    application.add_handler(CommandHandler("timer", timers))
+    application.add_handler(CommandHandler("back", start))
+
+    # Кубики
+    application.add_handler(CommandHandler("6", dice6))
+    application.add_handler(CommandHandler("2x6", dice2x6))
+    application.add_handler(CommandHandler("20", dice20))
+
+    # Таймеры
+    application.add_handler(CommandHandler("30s", timer30s))
+    application.add_handler(CommandHandler("1m", timer1m))
+    application.add_handler(CommandHandler("5m", timer5m))
+    application.add_handler(CommandHandler("close", reset_timer))
 
     application.run_polling()
 
