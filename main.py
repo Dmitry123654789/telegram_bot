@@ -1,59 +1,66 @@
-from requests import get
-from telegram import ReplyKeyboardMarkup
-from telegram.ext import Application, CommandHandler, filters, MessageHandler
+import requests
+from requests.adapters import HTTPAdapter
+from telegram.ext import Application, CommandHandler, MessageHandler, filters
+from urllib3 import Retry
 
 from config import BOT_TOKEN
 
-translate_keyboard = [['/eng_to_rus', '/rus_to_eng']]
-translate_markup = ReplyKeyboardMarkup(translate_keyboard, one_time_keyboard=False)
+
+def get_json(adress):
+    api_key = '8013b162-6b42-4997-9691-77b7074026e0'
+    server_address = 'https://geocode-maps.yandex.ru/1.x/?'
+    geocoder_request = f'{server_address}apikey={api_key}&geocode={adress}&format=json'
+    response = requests.get(geocoder_request)
+    return response
+
+
+def get_response_map(ll):
+    server_address = "https://static-maps.yandex.ru/v1"
+    apikey = '0eea7a3e-806e-4b45-8976-3c543752e89c'
+    map_params = {
+        'll': ll,
+        'apikey': apikey,
+        'pt': ll,
+        'z': 15
+    }
+    session = requests.Session()
+    retry = Retry(total=10, connect=5, backoff_factor=0.5)
+    adapter = HTTPAdapter(max_retries=retry)
+    session.mount('https://', adapter)
+    response = requests.get(server_address, params=map_params)
+    return response
 
 
 async def start(update, context):
-    context.user_data['last_command'] = ''
-    await update.message.reply_text('''Это Бот-переводчик
-/eng_to_rus Перевести текст с английского на русский
-/rus_to_eng перевести с русского на английский''', reply_markup=translate_markup)
+    await update.message.reply_text('Это Бот-геокодер\nВведите адрес объекта, который вы хотите увидеть на карте')
 
 
-async def translate_text(update, context):
-    if context.user_data['last_command'] == 'rus_to_eng':
-        lang = 'ru|en'
-    elif context.user_data['last_command'] == 'eng_to_rus':
-        lang = 'en|ru'
-    else:
-        return await update.message.reply_text('Что то пошло не так, попробуйте снова выбрать язык перевода')
+async def search_geo(update, context):
+    res = get_json(update.message.text)
+    if res.status_code != 200:
+        return await update.message.reply_text(
+            f'Ошибка на сервере поробуйте повторить запрос позже\nКод ошибки {res.status_code}')
 
-    text = update.message.text
-    url = "https://api.mymemory.translated.net/get"
-    params = {
-        "q": text,
-        "langpair": lang
-    }
-    response = get(url, params=params)
-    if response.status_code == 200:
-        await update.message.reply_text(response.json()['responseData']['translatedText'])
-    else:
-        await update.message.reply_text('Что-то пошло не так, попробуйте позже')
+    res = res.json()['response']['GeoObjectCollection']['featureMember']
+    if not res:
+        return await update.message.reply_text(
+            'Неверно указан адрес, попробуйте указать его сново, проверив правильность написания')
+    point = ','.join(res[0]['GeoObject']['Point']['pos'].split(' '))
 
-
-async def eng_to_rus(update, context):
-    context.user_data['last_command'] = 'eng_to_rus'
-    await update.message.reply_text('Введите текст на английском языке для перевода его на русский')
-
-
-async def rus_to_eng(update, context):
-    context.user_data['last_command'] = 'rus_to_eng'
-    await update.message.reply_text('Введите текст на русском языке для перевода его на английский')
+    map = get_response_map(point)
+    if map.status_code != 200:
+        return await update.message.reply_text(
+            f'Ошибка на сервере поробуйте повторить запрос позже\nКод ошибки {map.status_code}')
+    caption = f"На карте показан объект - {res[0]['GeoObject']['metaDataProperty']['GeocoderMetaData']['text']}"
+    await update.message.reply_photo(photo=map.content, caption=caption)
 
 
 def main():
     application = Application.builder().token(BOT_TOKEN).build()
 
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("eng_to_rus", eng_to_rus))
-    application.add_handler(CommandHandler("rus_to_eng", rus_to_eng))
 
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, translate_text))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, search_geo))
 
     application.run_polling()
 
