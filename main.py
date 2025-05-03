@@ -1,66 +1,76 @@
-import requests
-from requests.adapters import HTTPAdapter
-from telegram.ext import Application, CommandHandler, MessageHandler, filters
-from urllib3 import Retry
+from json import loads
+from random import choice
+
+from telegram.ext import Application, CommandHandler, filters, MessageHandler
 
 from config import BOT_TOKEN
 
+QUESTIONS = {}
+GAME = False
 
-def get_json(adress):
-    api_key = '8013b162-6b42-4997-9691-77b7074026e0'
-    server_address = 'https://geocode-maps.yandex.ru/1.x/?'
-    geocoder_request = f'{server_address}apikey={api_key}&geocode={adress}&format=json'
-    response = requests.get(geocoder_request)
-    return response
-
-
-def get_response_map(ll):
-    server_address = "https://static-maps.yandex.ru/v1"
-    apikey = '0eea7a3e-806e-4b45-8976-3c543752e89c'
-    map_params = {
-        'll': ll,
-        'apikey': apikey,
-        'pt': ll,
-        'z': 15
-    }
-    session = requests.Session()
-    retry = Retry(total=10, connect=5, backoff_factor=0.5)
-    adapter = HTTPAdapter(max_retries=retry)
-    session.mount('https://', adapter)
-    response = requests.get(server_address, params=map_params)
-    return response
+user_questions = {}
+last_questions = ''
 
 
 async def start(update, context):
-    await update.message.reply_text('Это Бот-геокодер\nВведите адрес объекта, который вы хотите увидеть на карте')
+    if QUESTIONS:
+        await update.message.reply_text('''Хотите ли вы пройти опрос?\n/yes Да\n/no нет''')
 
 
-async def search_geo(update, context):
-    res = get_json(update.message.text)
-    if res.status_code != 200:
-        return await update.message.reply_text(
-            f'Ошибка на сервере поробуйте повторить запрос позже\nКод ошибки {res.status_code}')
+async def yes(update, context):
+    global GAME, user_questions, last_questions
+    GAME = True
+    res = choice(list(list(QUESTIONS.keys())))
+    user_questions = {res: ''}
+    last_questions = res
+    await update.message.reply_text("Первый вопрос")
+    await update.message.reply_text(res)
 
-    res = res.json()['response']['GeoObjectCollection']['featureMember']
-    if not res:
-        return await update.message.reply_text(
-            'Неверно указан адрес, попробуйте указать его сново, проверив правильность написания')
-    point = ','.join(res[0]['GeoObject']['Point']['pos'].split(' '))
 
-    map = get_response_map(point)
-    if map.status_code != 200:
-        return await update.message.reply_text(
-            f'Ошибка на сервере поробуйте повторить запрос позже\nКод ошибки {map.status_code}')
-    caption = f"На карте показан объект - {res[0]['GeoObject']['metaDataProperty']['GeocoderMetaData']['text']}"
-    await update.message.reply_photo(photo=map.content, caption=caption)
+async def no(update, context):
+    await update.message.reply_text("Ну и ладно")
+
+
+async def stop(update, context):
+    global GAME
+    GAME = False
+    await update.message.reply_text("Игра прервана")
+
+
+async def load_question(update, context):
+    global last_questions, user_questions, GAME, QUESTIONS
+    if not GAME:
+        try:
+            for res in loads(update.message.text)['test']:
+                QUESTIONS[res['question']] = res['response']
+            return await update.message.reply_text("Вопросы записаны")
+        except Exception as e:
+            return await update.message.reply_text(f"Вопросы не записаны\nКод ошибки {str(e)}")
+
+    user_questions[last_questions] = update.message.text.strip()
+    if len(user_questions) == len(list(QUESTIONS.keys())) or len(user_questions) == 10:
+        GAME = False
+        count_true_answer = len([ansew for key, ansew in user_questions.items() if ansew == QUESTIONS[key]])
+        await update.message.reply_text(
+            f"Всего вопросов в тесте было {len(user_questions)}\nПравильный ответов {count_true_answer}")
+        return await update.message.reply_text(f"Хотите пройти тест снова?\n/yes Да\n/no нет")
+
+    res = choice(list(QUESTIONS.keys()))
+    while res in user_questions.keys():
+        res = choice(list(QUESTIONS.keys()))
+    user_questions[res] = ''
+    last_questions = res
+    await update.message.reply_text(res)
 
 
 def main():
     application = Application.builder().token(BOT_TOKEN).build()
 
     application.add_handler(CommandHandler("start", start))
-
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, search_geo))
+    application.add_handler(CommandHandler("stop", stop))
+    application.add_handler(CommandHandler("yes", yes))
+    application.add_handler(CommandHandler("no", no))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, load_question))
 
     application.run_polling()
 
